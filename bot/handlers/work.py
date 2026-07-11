@@ -2,9 +2,9 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
-from keyboards.inline.work import get_work_menu_keyboard, NavigationCallback
-from keyboards.reply.main_menu import get_main_menu_keyboard
-from services.navigation import NavigationService
+from bot.keyboards.inline.work import get_work_menu_keyboard, NavigationCallback
+from bot.keyboards.reply.main_menu import get_main_menu_keyboard
+from bot.services.navigation import NavigationService
 
 work_router = Router(name="work_router")
 nav_service = NavigationService() # В production — через Dependency Injection

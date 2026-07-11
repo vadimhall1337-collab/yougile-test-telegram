@@ -62,12 +62,25 @@ async def process_time(query: CallbackQuery, callback_data: CreationCallback, st
     await finalize_task_creation(query, state)
     await query.answer()
 
-async def finalize_task_creation(query: CallbackQuery, state: FSMContext):
+async def finalize_task_creation(query: CallbackQuery, state: FSMContext, task_creation_service: TaskCreationService):
     """Финальный шаг: отправка данных в сервис и ответ пользователю."""
     data = await state.get_data()
     
-    # В production-коде сервис инжектируется
-    # task_id = await task_creation_service.create_task_from_fsm(data)
+    # Отправляем сообщение-заглушку, пока идет запрос к API
+    await query.message.edit_text("⏳ <i>Создаю задачу в YouGile...</i>", parse_mode="HTML")
+    
+    try:
+        # Теперь задача реально создается в YouGile!
+        task_id = await task_creation_service.create_task_from_fsm(data)
+        await query.message.edit_text(
+            f"✅ Задача <b>{data.get('title')}</b> успешно создана!", 
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await query.message.edit_text(f"❌ Ошибка при создании задачи: {e}")
+        
+    await state.clear()
+    
     
     await query.message.edit_text(
         f"✅ Задача <b>{data.get('title')}</b> успешно создана во Входящих!", 
