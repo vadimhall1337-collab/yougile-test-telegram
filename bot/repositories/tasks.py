@@ -43,14 +43,38 @@ class TaskRepository(BaseRepository):
         return await self._fetch_with_cache(cache_key, fetcher)
 
     async def get_today_tasks(self) -> List[TaskDto]:
-        """Получает список всех задач с лимитом 1000 для последующей фильтрации."""
-        # Делаем запрос точно так же, как в твоем рабочем скрипте
-        response = await self._client.request("GET", "/tasks?limit=1000")
+        """
+        Получает список всех задач на сегодня для конкретной доски
+        через предварительное получение списка её колонок.
+        """
+        TARGET_BOARD_ID = "c59af5e0-84c6-4e67-8b23-681dd0ddf580"
+        
+        # 1. Получаем список колонок для нашей доски (с кэшированием, например, на 12 или 24 часа)
+        cache_key_columns = f"board:columns:{TARGET_BOARD_ID}"
+        
+        async def fetch_columns():
+            # Запрашиваем колонки доски (лимит 1000, чтобы точно забрать все)
+            raw_columns = await self._client.request("GET", f"/columns?boardId={TARGET_BOARD_ID}&limit=1000")
+            # Возвращаем список ID активных колонок
+            return [col["id"] for col in raw_columns.get("content", []) if not col.get("deleted")]
+
+        # Используем встроенный метод работы с кэшем (TTL = 12 часов = 43200 секунд)
+        column_ids = await self._fetch_with_cache(cache_key_columns, fetch_columns, ttl=43200)
+        
+        if not column_ids:
+            return []
+
+        # 2. Формируем строку ID колонок через запятую для YouGile API
+        columns_param = ","(column_ids)
+        
+        # Используем рекомендованный эндпоинт /task-list
+        response = await self._client.request("GET", f"/task-list?limit=1000&columnId={columns_param}")
         tasks_raw = response.get("content", [])
         
         today = datetime.now().date()
         result = []
         
+        # 3. Фильтруем полученные задачи по дедлайну
         for task in tasks_raw:
             deadline_obj = task.get("deadline")
             if not deadline_obj:
@@ -62,14 +86,12 @@ class TaskRepository(BaseRepository):
                 
             deadline_date = datetime.fromtimestamp(timestamp / 1000).date()
             
-            # Передаем в Service Layer все задачи, у которых дедлайн сегодня ИЛИ уже просрочен
-            # (Просроченные задачи тоже критически важно выводить в плане на день)
+            # Если дедлайн сегодня или просрочен
             if deadline_date <= today:
-                # Маппим сырой словарь в типизированный объект TaskDto
                 result.append(TaskDto(
                     id=task["id"],
                     title=task["title"],
-                    timestamp=timestamp, #добавлена передача timestamp
+                    timestamp=timestamp,
                     deadline=deadline_date
                 ))
                 
