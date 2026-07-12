@@ -65,7 +65,7 @@ class TaskRepository(BaseRepository):
             return []
 
         # 2. Формируем строку ID колонок через запятую для YouGile API
-        columns_param = ","(column_ids)
+        columns_param = ",".join(column_ids)
         
         # Используем рекомендованный эндпоинт /task-list
         response = await self._client.request("GET", f"/task-list?limit=1000&columnId={columns_param}")
