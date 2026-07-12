@@ -5,14 +5,14 @@ from datetime import datetime
 class TaskDto(BaseModel):
     id: str
     title: str
-    columnId: str
+    columnId: Optional[str] = None
     boardId: Optional[str] = None
     deleted: bool = False
     completed: bool = False
     archived: bool = False
-    timestamp: int
+    timestamp: Optional[int] = None 
+    deadline: Optional[datetime.date] = None 
     
-    # Для дерева подзадач
     subtasks: Optional[List[str]] = Field(default_factory=list)
     parent_id: Optional[str] = None
 

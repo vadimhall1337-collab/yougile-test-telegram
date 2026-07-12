@@ -18,7 +18,7 @@ class TaskService:
         overdue = []
         today = []
         
-        current_time = time.time()
+        current_time = time.time() * 1000
         
         # Разделение и сортировка
         for task in tasks:
