@@ -15,6 +15,7 @@ class TaskDto(BaseModel):
     
     subtasks: Optional[List[str]] = Field(default_factory=list)
     parent_id: Optional[str] = None
+    idTaskProject: Optional[str] = None
 
 class CreateTaskDto(BaseModel):
     title: str

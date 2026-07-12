@@ -45,37 +45,48 @@ class TaskRepository(BaseRepository):
     async def get_today_tasks(self) -> List[TaskDto]:
         """
         Получает список всех задач на сегодня для конкретной доски
-        через предварительное получение списка её колонок.
+        через предварительное получение списка её колонок, фильтруя по префиксу проекта.
         """
         TARGET_BOARD_ID = "c59af5e0-84c6-4e67-8b23-681dd0ddf580"
+        PROJECT_PREFIX = "work-"
         
-        # 1. Получаем список колонок для нашей доски (с кэшированием, например, на 12 или 24 часа)
+        # 1. Получаем список колонок для нашей доски (с кэшированием)
         cache_key_columns = f"board:columns:{TARGET_BOARD_ID}"
         
         async def fetch_columns():
-            # Запрашиваем колонки доски (лимит 1000, чтобы точно забрать все)
-            raw_columns = await self._client.request("GET", f"/columns?boardId={TARGET_BOARD_ID}&limit=1000")
-            # Возвращаем список ID активных колонок
+            query_params = {
+                "boardId": TARGET_BOARD_ID,
+                "limit": 1000
+            }
+            raw_columns = await self._client.request("GET", "/columns", params=query_params)
             return [col["id"] for col in raw_columns.get("content", []) if not col.get("deleted")]
 
-        # Используем встроенный метод работы с кэшем (TTL = 12 часов = 43200 секунд)
         column_ids = await self._fetch_with_cache(cache_key_columns, fetch_columns, ttl=43200)
         
         if not column_ids:
             return []
 
-        # 2. Формируем строку ID колонок через запятую для YouGile API
+        # 2. Запрашиваем задачи, принадлежащие этим колонкам
         columns_param = ",".join(column_ids)
         
-        # Используем рекомендованный эндпоинт /task-list
-        response = await self._client.request("GET", f"/task-list?limit=1000&columnId={columns_param}")
+        task_params = {
+            "columnId": columns_param,
+            "limit": 1000
+        }
+        
+        response = await self._client.request("GET", "/task-list", params=task_params)
         tasks_raw = response.get("content", [])
         
         today = datetime.now().date()
         result = []
         
-        # 3. Фильтруем полученные задачи по дедлайну
+        # 3. Фильтруем полученные задачи по дедлайну и префиксу проекта
         for task in tasks_raw:
+            # Проверяем ID задачи внутри проекта (должен начинаться с "work-")
+            id_task_project = task.get("idTaskProject")
+            if not id_task_project or not str(id_task_project).lower().startswith(PROJECT_PREFIX):
+                continue
+                
             deadline_obj = task.get("deadline")
             if not deadline_obj:
                 continue
