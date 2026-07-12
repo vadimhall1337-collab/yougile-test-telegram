@@ -69,6 +69,7 @@ class TaskRepository(BaseRepository):
                 result.append(TaskDto(
                     id=task["id"],
                     title=task["title"],
+                    timestamp=timestamp, #добавлена передача timestamp
                     deadline=deadline_date
                 ))
                 
