@@ -1,22 +1,23 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
-from keyboards.inline.tasks import (
+
+# Правильные абсолютные импорты от корня (bot.*)
+from bot.keyboards.inline.tasks import (
     get_today_tasks_keyboard, 
     get_task_detail_keyboard, 
     TaskDetailCallback, 
     TaskActionCallback
 )
-# Импортируем ваш класс репозитория (или сервиса), который обращается к YouGile
-from repositories.tasks import TaskRepository 
+from bot.repositories.tasks import TaskRepository 
 
-router = Router()
+today_router = Router()
 
 # ==========================================
 # 1. ОБРАБОТЧИК КНОПКИ "СЕГОДНЯ" (ВЫВОД СПИСКА)
 # ==========================================
-@router.message(F.text == "Сегодня")
+@today_router.message(F.text == "Сегодня")
 async def show_today_tasks(message: Message, task_repository: TaskRepository):
-    # Получаем задачи на сегодня
+    # Получаем задачи на сегодня (твоя рабочая логика)
     tasks = await task_repository.get_today_tasks()
     
     if not tasks:
@@ -25,7 +26,7 @@ async def show_today_tasks(message: Message, task_repository: TaskRepository):
         
     text = "📅 <b>Задачи на сегодня и просроченные:</b>\n\n<i>Выберите задачу для работы:</i>"
     
-    # Генерируем клавиатуру-список
+    # Генерируем клавиатуру, где каждая задача - это отдельная кнопка
     keyboard = get_today_tasks_keyboard(tasks)
     
     await message.answer(text, reply_markup=keyboard)
@@ -34,30 +35,31 @@ async def show_today_tasks(message: Message, task_repository: TaskRepository):
 # ==========================================
 # 2. ОБРАБОТЧИК КЛИКА ПО КОНКРЕТНОЙ ЗАДАЧЕ
 # ==========================================
-@router.callback_query(TaskDetailCallback.filter())
+@today_router.callback_query(TaskDetailCallback.filter())
 async def process_task_detail(call: CallbackQuery, callback_data: TaskDetailCallback, task_repository: TaskRepository):
-    # Достаем ID задачи, на которую нажал пользователь
+    # Достаем ID задачи из нажатой кнопки
     task_id = callback_data.task_id
     
-    # Делаем запрос к API для получения актуальной карточки задачи по ID
+    # Запрашиваем из YouGile актуальную информацию о конкретной задаче
     task = await task_repository.get_by_id(task_id)
     
     # Формируем дату дедлайна
     deadline_str = task.deadline.strftime("%d.%m.%Y") if task.deadline else "Не установлен"
     
-    # Формируем красивую карточку задачи
+    # Собираем красивый текст карточки
     text = (
         f"📌 <b>{task.title}</b>\n\n"
         f"⏳ <b>Дедлайн:</b> {deadline_str}\n"
     )
-    # Если в YouGile добавлено описание, выводим его
-    if task.description:
+    
+    # Если у задачи есть описание, добавляем его в сообщение
+    if hasattr(task, 'description') and task.description:
         text += f"\n📝 <b>Описание:</b>\n{task.description}"
         
-    # Формируем клавиатуру действий для этой задачи
+    # Формируем клавиатуру действий для этой задачи (Выполнить, Отложить)
     keyboard = get_task_detail_keyboard(task)
     
-    # Редактируем текущее сообщение, превращая список в карточку задачи
+    # Заменяем старое сообщение на карточку задачи
     await call.message.edit_text(text, reply_markup=keyboard)
     await call.answer()
 
@@ -65,9 +67,9 @@ async def process_task_detail(call: CallbackQuery, callback_data: TaskDetailCall
 # ==========================================
 # 3. ОБРАБОТЧИК ВОЗВРАТА НАЗАД К СПИСКУ
 # ==========================================
-@router.callback_query(F.data == "back_to_today")
+@today_router.callback_query(F.data == "back_to_today")
 async def process_back_to_today(call: CallbackQuery, task_repository: TaskRepository):
-    # При нажатии "Назад" снова запрашиваем актуальный список задач
+    # При нажатии "Назад" снова запрашиваем список задач
     tasks = await task_repository.get_today_tasks()
     
     if not tasks:
@@ -78,6 +80,6 @@ async def process_back_to_today(call: CallbackQuery, task_repository: TaskReposi
     text = "📅 <b>Задачи на сегодня и просроченные:</b>\n\n<i>Выберите задачу для работы:</i>"
     keyboard = get_today_tasks_keyboard(tasks)
     
-    # Возвращаем интерфейс к первоначальному списку
+    # Возвращаем интерфейс обратно к списку задач
     await call.message.edit_text(text, reply_markup=keyboard)
     await call.answer()

@@ -12,6 +12,8 @@ class TaskActionCallback(CallbackData, prefix="task_action"):
     task_id: str
     action: str  # Возможные значения: "complete", "postpone", "subtasks"
 
+TaskAction = TaskActionCallback    
+
 def get_today_tasks_keyboard(tasks: List[TaskDto]) -> InlineKeyboardMarkup:
     """Клавиатура со списком задач (каждая задача - отдельная кнопка)."""
     builder = InlineKeyboardBuilder()
