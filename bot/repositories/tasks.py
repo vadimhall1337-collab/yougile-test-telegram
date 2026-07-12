@@ -36,8 +36,12 @@ class TaskRepository(BaseRepository):
         cache_key = f"{self._CACHE_PREFIX_CASE}{case_id}"
         
         async def fetcher():
-            # Запрашиваем задачи конкретной доски/колонки
-            raw_data = await self._client.request("GET", f"/tasks?columnId={case_id}")
+            # YouGile v2 требует параметры GET-запроса передавать в json-теле!
+            payload = {
+                "columnId": case_id,
+                "limit": 1000
+            }
+            raw_data = await self._client.request("GET", "/task-list", json=payload)
             return [TaskDto(**item) for item in raw_data.get("content", [])]
             
         return await self._fetch_with_cache(cache_key, fetcher)
@@ -45,20 +49,21 @@ class TaskRepository(BaseRepository):
     async def get_today_tasks(self) -> List[TaskDto]:
         """
         Получает список всех задач на сегодня для конкретной доски
-        через предварительное получение списка её колонок, фильтруя по префиксу проекта.
+        через предварительное получение списка её колонок и фильтрацию по проекту.
         """
         TARGET_BOARD_ID = "c59af5e0-84c6-4e67-8b23-681dd0ddf580"
-        PROJECT_PREFIX = "work-"
+        PROJECT_PREFIX = "worki-"
         
-        # 1. Получаем список колонок для нашей доски (с кэшированием)
+        # 1. Получаем список колонок для нашей доски (кэшируем на 12 часов)
         cache_key_columns = f"board:columns:{TARGET_BOARD_ID}"
         
         async def fetch_columns():
-            query_params = {
+            # Передаем параметры в JSON-теле запроса, как требует YouGile v2
+            payload = {
                 "boardId": TARGET_BOARD_ID,
                 "limit": 1000
             }
-            raw_columns = await self._client.request("GET", "/columns", params=query_params)
+            raw_columns = await self._client.request("GET", "/columns", json=payload)
             return [col["id"] for col in raw_columns.get("content", []) if not col.get("deleted")]
 
         column_ids = await self._fetch_with_cache(cache_key_columns, fetch_columns, ttl=43200)
@@ -69,12 +74,13 @@ class TaskRepository(BaseRepository):
         # 2. Запрашиваем задачи, принадлежащие этим колонкам
         columns_param = ",".join(column_ids)
         
-        task_params = {
+        # Передаем columnId строкой через запятую строго в json-теле payload
+        task_payload = {
             "columnId": columns_param,
             "limit": 1000
         }
         
-        response = await self._client.request("GET", "/task-list", params=task_params)
+        response = await self._client.request("GET", "/task-list", json=task_payload)
         tasks_raw = response.get("content", [])
         
         today = datetime.now().date()
@@ -82,7 +88,7 @@ class TaskRepository(BaseRepository):
         
         # 3. Фильтруем полученные задачи по дедлайну и префиксу проекта
         for task in tasks_raw:
-            # Проверяем ID задачи внутри проекта (должен начинаться с "work-")
+            # Проверяем сквозной ID внутри проекта (должен начинаться с "work-")
             id_task_project = task.get("idTaskProject")
             if not id_task_project or not str(id_task_project).lower().startswith(PROJECT_PREFIX):
                 continue
@@ -97,7 +103,7 @@ class TaskRepository(BaseRepository):
                 
             deadline_date = datetime.fromtimestamp(timestamp / 1000).date()
             
-            # Если дедлайн сегодня или просрочен
+            # Передаем задачи, у которых дедлайн сегодня ИЛИ уже просрочен
             if deadline_date <= today:
                 result.append(TaskDto(
                     id=task["id"],
@@ -125,21 +131,22 @@ class TaskRepository(BaseRepository):
         return await self._execute_and_invalidate(action, prefixes)
 
     async def complete(self, task_id: str) -> TaskDto:
-        # Для завершения меняем статус completed на True
         dto = UpdateTaskDto(completed=True)
         return await self.update(task_id, dto)
 
     async def move(self, task_id: str, new_column_id: str) -> TaskDto:
-        # Для перемещения меняем columnId
         dto = UpdateTaskDto(columnId=new_column_id)
         return await self.update(task_id, dto)
 
     async def search(self, query: str) -> List[TaskDto]:
-        # Кэшируем результаты поиска с небольшим TTL
         cache_key = f"{self._CACHE_PREFIX_SEARCH}{query}"
         
         async def fetcher():
-            raw_data = await self._client.request("GET", f"/tasks?search={query}")
+            # Для эндпоинта /tasks поиск тоже передаем через JSON body
+            payload = {
+                "search": query
+            }
+            raw_data = await self._client.request("GET", "/tasks", json=payload)
             return [TaskDto(**item) for item in raw_data.get("content", [])]
             
         return await self._fetch_with_cache(cache_key, fetcher, ttl=60)
