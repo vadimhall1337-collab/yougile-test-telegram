@@ -27,16 +27,9 @@ class TaskRepository(BaseRepository):
         cache_key = f"{self._CACHE_PREFIX_DETAIL}{task_id}"
         
         async def fetcher():
-            # Переключаемся на /task-list и передаем фильтр по id в теле запроса
-            payload = {"id": task_id}
-            response = await self._client.request("GET", "/task-list", json=payload)
-            content = response.get("content", [])
-            
-            if not content:
-                raise ValueError(f"Задача с id {task_id} не найдена в YouGile")
-                
-            # Возвращаем первый найденный элемент из списка
-            return TaskDto(**content[0])
+            # Используем правильный эндпоинт YouGile для получения задачи по ID
+            raw_data = await self._client.request("GET", f"/tasks/{task_id}")
+            return TaskDto(**raw_data)
             
         return await self._fetch_with_cache(cache_key, fetcher)
 
@@ -124,7 +117,11 @@ class TaskRepository(BaseRepository):
 
     async def create(self, dto: CreateTaskDto) -> TaskDto:
         async def action():
-            raw_data = await self._client.request("POST", "/tasks", json=dto.model_dump(exclude_none=True))
+            # Создаем задачу и получаем её ID
+            res = await self._client.request("POST", "/tasks", json=dto.model_dump(exclude_none=True))
+            created_id = res.get("id")
+            # Запрашиваем полный объект только что созданной задачи
+            raw_data = await self._client.request("GET", f"/tasks/{created_id}")
             return TaskDto(**raw_data)
             
         prefixes = self._get_invalidation_prefixes(case_id=dto.columnId)
@@ -132,7 +129,10 @@ class TaskRepository(BaseRepository):
 
     async def update(self, task_id: str, dto: UpdateTaskDto) -> TaskDto:
         async def action():
-            raw_data = await self._client.request("PUT", f"/tasks/{task_id}", json=dto.model_dump(exclude_none=True))
+            # Обновляем задачу в YouGile
+            await self._client.request("PUT", f"/tasks/{task_id}", json=dto.model_dump(exclude_none=True))
+            # Запрашиваем полные актуальные данные задачи (включая неизмененный title)
+            raw_data = await self._client.request("GET", f"/tasks/{task_id}")
             return TaskDto(**raw_data)
             
         prefixes = self._get_invalidation_prefixes(task_id=task_id, case_id=dto.columnId)
