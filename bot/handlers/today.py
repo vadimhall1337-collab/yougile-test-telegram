@@ -8,7 +8,9 @@ from bot.keyboards.inline.tasks import (
     get_task_detail_keyboard, 
     TaskDetailCallback, 
 )
-from bot.repositories.tasks import TaskRepository 
+from bot.repositories.tasks import TaskRepository
+from aiogram.utils.keyboard import InlineKeyboardBuilder
+from bot.keyboards.inline.tasks import TaskActionCallback
 
 today_router = Router()
 
@@ -83,7 +85,67 @@ async def process_task_detail(call: CallbackQuery, callback_data: TaskDetailCall
     await call.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
     await call.answer()
 
-
+# Обработчик выбора подзадач.
+@today_router.callback_query(TaskActionCallback.filter(F.action == "subtasks"))
+async def process_task_subtasks(call: CallbackQuery, callback_data: TaskActionCallback, task_repo: TaskRepository):
+    task_id = callback_data.task_id
+    task = await task_repo.get_by_id(task_id)
+    
+    if not task.subtasks:
+        await call.answer("У этой задачи нет подзадач.", show_alert=True)
+        return
+        
+    await call.answer("Загружаю список подзадач...")
+    
+    # Шапка сообщения
+    text = (
+        f"📋 <b>Подзадачи для:</b>\n«{task.title}»\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+    )
+    
+    builder = InlineKeyboardBuilder()
+    
+    # В одном цикле собираем и полный текстовый список, и инлайн-кнопки
+    for idx, sub_id in enumerate(task.subtasks, start=1):
+        try:
+            sub_task = await task_repo.get_by_id(sub_id)
+            status_icon = "✅" if sub_task.completed else "📌"
+            
+            # 1. Добавляем в текст сообщения ПОЛНОЕ (неурезанное) название подзадачи
+            text += f"{idx}. {status_icon} <b>{sub_task.title}</b>\n"
+            
+            # 2. Обрезаем название исключительно для инлайн-кнопки
+            sub_title = sub_task.title if len(sub_task.title) <= 25 else sub_task.title[:22] + "..."
+            button_text = f"{idx}. {status_icon} {sub_title}"
+            
+            builder.button(
+                text=button_text,
+                callback_data=TaskDetailCallback(task_id=sub_task.id)
+            )
+        except Exception:
+            text += f"{idx}. ❌ Ошибка загрузки подзадачи (ID: {sub_id})\n"
+            builder.button(
+                text=f"{idx}. ❌ Ошибка загрузки",
+                callback_data="invalid_subtask_click"
+            )
+            
+    # Подвал сообщения под текстовым списком задач
+    text += (
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<i>Выберите подзадачу из списка ниже, чтобы открыть её карточку:</i>"
+    )
+    
+    # Кнопка возврата к родительской задаче
+    builder.button(
+        text="🔙 Назад к родительской задаче", 
+        callback_data=TaskDetailCallback(task_id=task_id)
+    )
+    
+    # Выстраиваем кнопки в один вертикальный ряд
+    builder.adjust(1)
+    
+    await call.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+    
 # ==========================================
 # 3. ОБРАБОТЧИК ВОЗВРАТА НАЗАД К СВОЕМУ СПИСКУ
 # ==========================================
