@@ -15,10 +15,12 @@ today_router = Router()
 # ==========================================
 # 1. ОБРАБОТЧИК КНОПКИ "СЕГОДНЯ" (ВЫВОД СПИСКА)
 # ==========================================
-@today_router.message(F.text == "Сегодня")
-async def show_today_tasks(message: Message, task_repository: TaskRepository):
-    # Получаем задачи на сегодня (твоя рабочая логика)
-    tasks = await task_repository.get_today_tasks()
+# ИСПРАВЛЕНО: Добавлен эмодзи 📅 в фильтр текста
+@today_router.message(F.text == "📅 Сегодня")
+# ИСПРАВЛЕНО: Имя аргумента изменено на task_repo, как в main.py
+async def show_today_tasks(message: Message, task_repo: TaskRepository):
+    # Получаем задачи на сегодня
+    tasks = await task_repo.get_today_tasks()
     
     if not tasks:
         await message.answer("🎉 Отлично! У вас нет просроченных и текущих задач на сегодня.")
@@ -36,12 +38,13 @@ async def show_today_tasks(message: Message, task_repository: TaskRepository):
 # 2. ОБРАБОТЧИК КЛИКА ПО КОНКРЕТНОЙ ЗАДАЧЕ
 # ==========================================
 @today_router.callback_query(TaskDetailCallback.filter())
-async def process_task_detail(call: CallbackQuery, callback_data: TaskDetailCallback, task_repository: TaskRepository):
+# ИСПРАВЛЕНО: Имя аргумента изменено на task_repo
+async def process_task_detail(call: CallbackQuery, callback_data: TaskDetailCallback, task_repo: TaskRepository):
     # Достаем ID задачи из нажатой кнопки
     task_id = callback_data.task_id
     
     # Запрашиваем из YouGile актуальную информацию о конкретной задаче
-    task = await task_repository.get_by_id(task_id)
+    task = await task_repo.get_by_id(task_id)
     
     # Формируем дату дедлайна
     deadline_str = task.deadline.strftime("%d.%m.%Y") if task.deadline else "Не установлен"
@@ -68,9 +71,10 @@ async def process_task_detail(call: CallbackQuery, callback_data: TaskDetailCall
 # 3. ОБРАБОТЧИК ВОЗВРАТА НАЗАД К СПИСКУ
 # ==========================================
 @today_router.callback_query(F.data == "back_to_today")
-async def process_back_to_today(call: CallbackQuery, task_repository: TaskRepository):
+# ИСПРАВЛЕНО: Имя аргумента изменено на task_repo
+async def process_back_to_today(call: CallbackQuery, task_repo: TaskRepository):
     # При нажатии "Назад" снова запрашиваем список задач
-    tasks = await task_repository.get_today_tasks()
+    tasks = await task_repo.get_today_tasks()
     
     if not tasks:
         await call.message.edit_text("🎉 Отлично! У вас больше нет просроченных и текущих задач на сегодня.")
