@@ -27,8 +27,16 @@ class TaskRepository(BaseRepository):
         cache_key = f"{self._CACHE_PREFIX_DETAIL}{task_id}"
         
         async def fetcher():
-            raw_data = await self._client.request("GET", f"/tasks/{task_id}")
-            return TaskDto(**raw_data)
+            # Переключаемся на /task-list и передаем фильтр по id в теле запроса
+            payload = {"id": task_id}
+            response = await self._client.request("GET", "/task-list", json=payload)
+            content = response.get("content", [])
+            
+            if not content:
+                raise ValueError(f"Задача с id {task_id} не найдена в YouGile")
+                
+            # Возвращаем первый найденный элемент из списка
+            return TaskDto(**content[0])
             
         return await self._fetch_with_cache(cache_key, fetcher)
 
