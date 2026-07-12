@@ -3,6 +3,7 @@ from repositories.base import BaseRepository
 from yougile.dto.tasks import TaskDto, CreateTaskDto, UpdateTaskDto
 from yougile.client import YouGileClient
 from utils.cache import CacheService
+from datetime import datetime
 
 class TaskRepository(BaseRepository):
     def __init__(self, client: YouGileClient, cache: CacheService):
@@ -42,14 +43,36 @@ class TaskRepository(BaseRepository):
         return await self._fetch_with_cache(cache_key, fetcher)
 
     async def get_today_tasks(self) -> List[TaskDto]:
-        cache_key = self._CACHE_PREFIX_TODAY
+        """Получает список всех задач с лимитом 1000 для последующей фильтрации."""
+        # Делаем запрос точно так же, как в твоем рабочем скрипте
+        response = await self._client.request("GET", "/tasks?limit=1000")
+        tasks_raw = response.get("content", [])
         
-        async def fetcher():
-            # Здесь будет сложный фильтр по дедлайнам через API YouGile
-            raw_data = await self._client.request("GET", "/tasks?deadline=today") 
-            return [TaskDto(**item) for item in raw_data.get("content", [])]
+        today = datetime.now().date()
+        result = []
+        
+        for task in tasks_raw:
+            deadline_obj = task.get("deadline")
+            if not deadline_obj:
+                continue
+                
+            timestamp = deadline_obj.get("deadline")
+            if not timestamp:
+                continue
+                
+            deadline_date = datetime.fromtimestamp(timestamp / 1000).date()
             
-        return await self._fetch_with_cache(cache_key, fetcher)
+            # Передаем в Service Layer все задачи, у которых дедлайн сегодня ИЛИ уже просрочен
+            # (Просроченные задачи тоже критически важно выводить в плане на день)
+            if deadline_date <= today:
+                # Маппим сырой словарь в типизированный объект TaskDto
+                result.append(TaskDto(
+                    id=task["id"],
+                    title=task["title"],
+                    deadline=deadline_date
+                ))
+                
+        return result
 
     async def create(self, dto: CreateTaskDto) -> TaskDto:
         async def action():

@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     YOUGILE_INBOX_COLUMN_ID: str # ID колонки для новых задач
     YOUGILE_CHECKS_COLUMN_ID: str   # Материалы
     YOUGILE_REGIONAL_COLUMN_ID: str # Поручения
+    YOUGILE_TODAY_COLUMN_ID: str # сегодняшние задачи
+    ID_COMPANY: str = None
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
