@@ -20,6 +20,7 @@ from bot.database.session import async_session_maker
 from bot.services.task_creation import TaskCreationService
 from bot.services.task_closing import TaskClosingService
 from bot.services.users import UserService
+from bot.services.task_postpone import TaskPostponeService
 
 from bot.handlers.start import start_router
 from bot.handlers.today import today_router
@@ -28,6 +29,8 @@ from bot.handlers.cases import cases_router
 from bot.handlers.creation import creation_router
 from bot.handlers.closing import closing_router
 from bot.handlers.settings import settings_router
+from bot.handlers.postpone import postpone_router
+from bot.handlers.edit import edit_router
 
 logger = structlog.get_logger(__name__)
 
@@ -55,13 +58,19 @@ async def main():
     
     dp.include_routers(
         start_router, today_router, work_router, 
-        cases_router, creation_router, closing_router, settings_router
+        cases_router, creation_router, closing_router, settings_router, postpone_router, edit_router
     )
+    
+    task_postpone_service = TaskPostponeService(task_repo=task_repo)
+    from bot.services.task_edit import TaskEditService
+    task_edit_service = TaskEditService(task_repo=task_repo)
     
     dp.workflow_data.update(
         task_service=task_service,
         task_creation_service=task_creation_service, # Добавили
         task_closing_service=task_closing_service,   # Добавили
+        task_postpone_service=task_postpone_service, # Добавили
+        task_edit_service=task_edit_service,         # Добавили
         user_service=user_service,                   # Добавили
         notification_service=notification_service,
         db_user_repo=user_repo,

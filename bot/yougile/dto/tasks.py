@@ -41,9 +41,12 @@ class CreateTaskDto(BaseModel):
     title: str
     columnId: str
     description: Optional[str] = None
+    deadline: Optional[date] = None
 
 class UpdateTaskDto(BaseModel):
     title: Optional[str] = None
     columnId: Optional[str] = None
     completed: Optional[bool] = None
     archived: Optional[bool] = None
+    description: Optional[str] = None
+    deadline: Optional[date] = None
