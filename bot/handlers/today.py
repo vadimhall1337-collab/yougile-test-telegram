@@ -7,11 +7,11 @@ from aiogram.fsm.context import FSMContext
 from bot.keyboards.inline.tasks import (
     get_today_tasks_keyboard, 
     get_task_detail_keyboard, 
-    TaskDetailCallback, 
+    TaskDetailCallback,
+    TaskActionCallback,
 )
 from bot.repositories.tasks import TaskRepository
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from bot.keyboards.inline.tasks import TaskActionCallback
 from bot.services.navigation import NavigationService
 
 today_router = Router()
@@ -42,10 +42,10 @@ async def show_today_tasks(message: Message, task_repo: TaskRepository, state: F
             deadline_str = task.deadline.strftime("%d.%m.%Y")
             text_overdue += f"{i}. 📌 <b>{task.title}</b>\n   ⏳ Дедлайн: <code>{deadline_str}</code>\n\n"
             
-        text_overdue += "<i>Выберите просроченную задачу для работы:</i>"
+        text_overdue += "<i>Выберите просроченную задачу или используйте быстрые кнопки ✅ и 🕒:</i>"
         msg_overdue = await message.answer(
             text_overdue, 
-            reply_markup=get_today_tasks_keyboard(overdue_tasks), 
+            reply_markup=get_today_tasks_keyboard(overdue_tasks, with_quick_actions=True), 
             parse_mode="HTML"
         )
         sent_msg_ids.append(msg_overdue.message_id)
@@ -57,10 +57,10 @@ async def show_today_tasks(message: Message, task_repo: TaskRepository, state: F
             deadline_str = task.deadline.strftime("%d.%m.%Y") if task.deadline else "Без дедлайна"
             text_today += f"{i}. 📌 <b>{task.title}</b>\n   ⏳ Дедлайн: <code>{deadline_str}</code>\n\n"
             
-        text_today += "<i>Выберите задачу на сегодня для работы:</i>"
+        text_today += "<i>Выберите задачу или используйте быстрые кнопки ✅ и 🕒:</i>"
         msg_today = await message.answer(
             text_today, 
-            reply_markup=get_today_tasks_keyboard(today_tasks), 
+            reply_markup=get_today_tasks_keyboard(today_tasks, with_quick_actions=True), 
             parse_mode="HTML"
         )
         sent_msg_ids.append(msg_today.message_id)
@@ -173,7 +173,104 @@ async def process_task_subtasks(call: CallbackQuery, callback_data: TaskActionCa
 
 
 # ==========================================
-# 4. ОБРАБОТЧИК ВОЗВРАТА НАЗАД К СВОЕМУ СПИСКУ
+# 5. БЫСТРОЕ ВЫПОЛНЕНИЕ ЗАДАЧИ (✅)
+# ==========================================
+@today_router.callback_query(TaskActionCallback.filter(F.action == "quick_complete"))
+async def process_quick_complete(call: CallbackQuery, callback_data: TaskActionCallback, task_closing_service: TaskClosingService):
+    """Быстрое выполнение задачи прямо из списка."""
+    task_id = callback_data.task_id
+    
+    try:
+        # Проверяем наличие незавершенных подзадач
+        has_uncompleted = await task_closing_service.check_uncompleted_subtasks(task_id)
+        
+        if has_uncompleted:
+            # Если есть подзадачи, показываем предупреждение
+            await call.answer("⚠️ Есть незавершенные подзадачи! Откройте задачу для завершения.", show_alert=True)
+            return
+            
+        # Выполняем задачу
+        await task_closing_service.complete_task_tree(task_id)
+        
+        # Удаляем сообщение со списком и возвращаем обновленный список
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+        
+        # Получаем обновленный список и показываем его
+        tasks = await call.bot.get_user_chat(call.from_user.id)  # Получаем chat_id
+        
+        # Эмулируем команду "📅 Сегодня"
+        from aiogram.types import Message
+        fake_message = type('FakeMessage', (), {
+            'chat': type('Chat', (), {'id': call.from_user.id})(),
+            'answer': lambda self, text, **kwargs: call.message.answer(text, **kwargs)
+        })()
+        
+        await call.answer("✅ Задача выполнена!", show_alert=False)
+        
+    except Exception as e:
+        await call.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
+
+
+# ==========================================
+# 6. БЫСТРОЕ ОТЛАЖИВАНИЕ ЗАДАЧИ (🕒)
+# ==========================================
+@today_router.callback_query(TaskActionCallback.filter(F.action == "quick_postpone"))
+async def process_quick_postpone(call: CallbackQuery, callback_data: TaskActionCallback, task_postpone_service: TaskPostponeService):
+    """Быстрое откладывание задачи прямо из списка."""
+    task_id = callback_data.task_id
+    
+    try:
+        # Получаем задачу
+        task = await task_postpone_service.get_task_with_details(task_id)
+        
+        # Получаем доступные колонки
+        columns = await task_postpone_service.get_available_columns_for_task(task)
+        
+        if not columns:
+            await call.answer("❌ Нет доступных колонок для перемещения.", show_alert=True)
+            return
+        
+        # Показываем выбор колонки
+        text = (
+            f"🕒 <b>Перемещение задачи</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"📌 <b>{task.title}</b>\n\n"
+            f"Выберите колонку для перемещения:"
+        )
+        
+        builder = InlineKeyboardBuilder()
+        
+        for col in columns:
+            col_name = col["title"][:30] + "..." if len(col["title"]) > 30 else col["title"]
+            builder.button(
+                text=f"📁 {col_name}",
+                callback_data=f"postpone_move:{task_id}:{col['id']}"
+            )
+        
+        builder.button(
+            text="❌ Отмена",
+            callback_data=f"postpone_cancel:{task_id}"
+        )
+        
+        builder.adjust(1)
+        
+        await call.message.edit_text(
+            text=text,
+            reply_markup=builder.as_markup(),
+            parse_mode="HTML"
+        )
+        
+        await call.answer()
+        
+    except Exception as e:
+        await call.answer(f"❌ Ошибка: {str(e)}", show_alert=True)
+
+
+# ==========================================
+# 7. ОБРАБОТЧИК ВОЗВРАТА НАЗАД К СВОЕМУ СПИСКУ
 # ==========================================
 @today_router.callback_query(F.data == "back_to_today")
 async def process_back_to_today(call: CallbackQuery, task_repo: TaskRepository, state: FSMContext):
@@ -204,10 +301,10 @@ async def process_back_to_today(call: CallbackQuery, task_repo: TaskRepository, 
             deadline_str = task.deadline.strftime("%d.%m.%Y")
             text_overdue += f"{i}. 📌 <b>{task.title}</b>\n   ⏳ Дедлайн: <code>{deadline_str}</code>\n\n"
             
-        text_overdue += "<i>Выберите просроченную задачу для работы:</i>"
+        text_overdue += "<i>Выберите просроченную задачу или используйте быстрые кнопки ✅ и 🕒:</i>"
         msg_overdue = await call.message.answer(
             text_overdue, 
-            reply_markup=get_today_tasks_keyboard(overdue_tasks), 
+            reply_markup=get_today_tasks_keyboard(overdue_tasks, with_quick_actions=True), 
             parse_mode="HTML"
         )
         sent_msg_ids.append(msg_overdue.message_id)
@@ -219,10 +316,10 @@ async def process_back_to_today(call: CallbackQuery, task_repo: TaskRepository, 
             deadline_str = task.deadline.strftime("%d.%m.%Y") if task.deadline else "Без дедлайна"
             text_today += f"{i}. 📌 <b>{task.title}</b>\n   ⏳ Дедлайн: <code>{deadline_str}</code>\n\n"
             
-        text_today += "<i>Выберите задачу на сегодня для работы:</i>"
+        text_today += "<i>Выберите задачу или используйте быстрые кнопки ✅ и 🕒:</i>"
         msg_today = await call.message.answer(
             text_today, 
-            reply_markup=get_today_tasks_keyboard(today_tasks), 
+            reply_markup=get_today_tasks_keyboard(today_tasks, with_quick_actions=True), 
             parse_mode="HTML"
         )
         sent_msg_ids.append(msg_today.message_id)
